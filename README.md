@@ -133,4 +133,3 @@ The statistical calculations for an image cube are very slow compared to other o
 Gradient-mapping is also slow compared to other operations, for a similar reason (it involves the use of a for loop in a user-defined function).
 
 DaVinci's Shadow does not include the optional add-ons (GNUPlot, ImageJ, etc.) that the full version does. This is because I didn't want to be obligated to provide source code for them. If you need these add-ons, install the regular version of DaVinci from ASU's site, then copy those add-ons to the DaVinci's Shadow directory.
-Building DaVinci's Shadow on Linux
