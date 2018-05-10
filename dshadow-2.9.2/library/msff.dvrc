@@ -1,0 +1,935 @@
+msff_version=1.07
+
+#1.07 9-7-10 changes to load_aster to work with 09T data
+
+# isis3setup - setup isis3 for the moeur building enviornment - cedwards 7-1-10
+# scale_bar	- taken from /u/phil/prc_dvrc
+# scale_bar_text	- taken from /u/phil/prc_dvrc
+# mola_overlay	- taken from /u/phil/prc_dvrc
+#moved mola_overlay to msff from misc.dvrc
+#moved get_map and availabel map to misc.dvrc - 9/3/09
+#	delete_object_vars()	- format PDS file prior to conversion to ISIS3 structure - r. kaelber / j. hill
+#	themis_to_isis3()	- converts a THEMIS EDR/RDR to ISIS3 format, preserving pre-ISIS processing history - r. kaelber / j. hill
+
+
+# load_aster -- added by D.Noss
+
+define isis3setup(beta) {
+
+	if(HasValue(beta)) {
+		putenv("ISISROOT","/mars/common/isis3/betax86_64_Linux/isis")
+	} else {
+		putenv("ISISROOT","/mars/common/isis3/x86_64_Linux/isis")
+	}
+	putenv("ISIS3DATA",$ISISROOT+"/../data")
+	putenv("ISIS3TESTDATA",$ISISROOT+"/../testData")
+	putenv("PATH",$PATH+":"+$ISISROOT+"/bin")
+	putenv("QT_PLUGIN_PATH",$ISISROOT+"/3rdParty/plugins")
+	insmod("isis3")
+}
+
+define scale_bar(invert, font_factor) {
+	#Added $DV_HOME support
+	#added color_tables to $DV_SCRIPT_FILES 1-30-09
+
+if ($ARGC == 0) {
+	printf (" \n")
+	printf (" Add a scale bar to the bottom of an image \n")
+	printf (" Computes appropriate size of scalebar and text to match image\n")
+	printf (" usage:  scale_bar('filename', z_min, z_max, 'units' (e.g. 'K'), colorize_flag, invert=[0 or 1])  \n")
+	printf (" \n")
+	printf (" where: \n")
+	printf ("       filename =    - name of image on disk\n")
+	printf ("       z_text   =    - numeric label for minimum value on scalebar\n")
+	printf ("       z_text   =    - numeric label for maximum value on scalebar\n")
+	printf ("       units    =    - text label for units (e.g. 'K' or 'Centigrade'\n")
+	printf ("       colorize = 0  - no colorize \n")
+	printf ("                = 1  - use purple to red scale \n")
+	printf ("                = 2  - use purple to white scale \n")
+	printf ("                = 3  - color laserjet purple to red scale \n")
+	printf ("       [invert] = 0  - background color is black, text is white (default)\n")
+	printf ("                = 1  - background is white\n")
+	printf (" \n")
+	printf (" example:  scale_bar('temperature.ppm', 170, 190, 'K', 1)  \n")
+	return(0)
+}
+
+# changed from helv_ to helmet to run on linux ~2004
+    basename = $1
+    zmin = $2
+    zmax = $3
+    units = $4
+    colorize = $5
+
+		iflag = 0
+		bg_color = "black"
+		fg_color = "white"	
+
+	  if (HasValue(invert)) {
+ 		  if (invert ==1) {
+				iflag = 1
+				bg_color = "white"
+				fg_color = "black"
+ 	  	}
+ 	 	}
+    
+    printf(" %s\n",basename)
+    a=read(basename)
+
+    # scale to width of original image
+    width = dim(a)[1]
+    height = dim(a)[2]
+    ave_dim = int((width + height) /2.)
+
+    # calculate font size for scale bar text
+    font_size = int(ave_dim/40. / 2) * 2
+    if (HasValue(font_factor)) {
+        font_size = int(font_size*font_factor)
+    }
+
+		#font_size = int(ave_dim/40. / 6) * 6
+        printf("font size = %d\n", font_size)
+    if (font_size <= 12) {
+        font_size = 12
+    }
+    printf (" font = %d\n", font_size)
+
+    # calculate size of scale bar
+    scale_len = int(ave_dim / (720./300) / 40) * 40
+
+		#scale_len = int(width / (720./300) / 50) * 50
+    scale_height = int(scale_len / 12.) 
+
+    # calculate pad between bottom of image and scale bar
+    pad = int(height / 60.)
+
+    # compute size of white line around scale bar
+    border = int(scale_height / 24.) 
+    printf(" width = %d  height = %d ave_dimension = %d pad = %d  border = %d\n",width, height, ave_dim, pad, border)
+
+    # make scale bar text
+    izmin = int(zmin)
+    izmax = int(zmax)
+    if (zmin - izmin) {
+       fstring = sprintf("%.2f",zmin)
+    } else {
+       fstring = sprintf("%d",izmin)
+    }
+    if (zmax - izmax) {
+       fstring2 = sprintf("%.2f",zmax)
+    } else {
+       fstring2 = sprintf("%d",izmax)
+    }
+
+#   system (sprintf('/themis/lib/dav_lib/fonts/make_font %d', font_size))
+
+		write(byte(clone(0,scale_len,2*scale_height,1)),$TMPDIR+"/text.png",png,force=1)
+		azmin = sprintf("convert -gravity center -font helvetica-bold -fill white -pointsize %d -draw 'text 0,0 \"%s %s\"' "+$TMPDIR+"/text.png "+$TMPDIR+"/label1.png",font_size,fstring,units)
+		azmax = sprintf("convert -gravity center -font helvetica-bold -fill white -pointsize %d -draw 'text 0,0 \"%s %s\"' "+$TMPDIR+"/text.png "+$TMPDIR+"/label2.png",font_size,fstring2,units)
+		
+    #azmin = sprintf("echo '%s %s' | pbmtext -font "+$DV_HOME+"/fonts/helmet_%d | pnminvert | pbmtopgm 1 1 | pnmdepth 255 > "+$TMPDIR+"/label1", fstring, units, font_size)
+    #azmax = sprintf("echo '%s %s' | pbmtext -font "+$DV_HOME+"/fonts/helmet_%d | pnminvert | pbmtopgm 1 1 | pnmdepth 255 > "+$TMPDIR+"/label2", fstring2, units, font_size)
+		echo(azmin)
+		echo(azmax)
+    system(azmin)
+    system(azmax)
+    f1 = clip(read($TMPDIR+"/label1.png")[,,1]*byte(255),0)
+    f2 = clip(read($TMPDIR+"/label2.png")[,,1]*byte(255),0)
+    # compute size of blank space between scale bar text
+    df1 = dim(f1)[1]
+    df2 = dim(f2)[1]
+    ave_df = avg(df1+df2)
+    blanks = int(scale_len - ave_df/2.0)
+
+		if (blanks <= 0) {
+			blanks = 1
+		}
+
+ 	  hf1 = dim(f1)[2]
+ 	  # concatinate text and blanks to make scale bar label
+ 	  text = f1//bip(byte(create(blanks,hf1) * 0))//f2
+		tbpad=bip(clone(byte(0),dim(text)[1],int(dim(text)[2]*.5),1))
+		text=cat(tbpad,text,tbpad,axis=y)
+ 	  write(byte(text), $TMPDIR+"/scale.text", pgm, force=1)
+    if (iflag == 1) {
+  	  system("pnminvert "+$TMPDIR+"/scale.text > "+$TMPDIR+"/scale.text.tmp ; mv "+$TMPDIR+"/scale.text.tmp "+$TMPDIR+"/scale.text");
+    }
+
+    if(colorize == 1) {
+        # colorize scale bar using purple to red scale
+        cmd = sprintf("pgmramp -lr %d %d | pgmtoppm -map "+$DV_SCRIPT_FILES+"/color_tables/colormap_daily.ppm > "+$TMPDIR+"/scalebar", scale_len, scale_height)
+    } else if(colorize == 2) {
+        # colorize scale bar using purple to white scale
+        cmd = sprintf("pgmramp -lr %d %d | pgmtoppm -map "+$DV_SCRIPT_FILES+"/color_tables/colormap.ppm  > "+$TMPDIR+"/scalebar", scale_len, scale_height)
+    } else if(colorize == 3) {
+        # colorize scale bar using purple to red scale
+        cmd = sprintf("pgmramp -lr %d %d | pgmtoppm -map "+$DV_SCRIPT_FILES+"/color_tables/colorjet.ppm  > "+$TMPDIR+"/scalebar", scale_len, scale_height)
+    } else if (colorize == 0) {
+        # don't colorize scale bar
+        cmd = sprintf("pgmramp -lr %d %d > "+$TMPDIR+"/scalebar", scale_len, scale_height)
+    } else {
+        printf (" bad colorize choice\n")
+        return (0)
+    }
+
+
+    system(cmd)
+    cmd = sprintf("pnmpad -%s -t%d -b%d -l%d -r%d "+$TMPDIR+"/scalebar | pnmpad -%s -t%d > "+$TMPDIR+"/scalebar2", fg_color, border, border, border, border, bg_color, pad)
+    system(cmd);
+    
+    # concatinate scale and text
+    cmd = sprintf("pnmcat -tb -%s "+$TMPDIR+"/scalebar2 "+$TMPDIR+"/scale.text > "+$TMPDIR+"/textbar", bg_color)
+    system(cmd)
+
+    # concatinate scale onto final image
+    cmd = sprintf("pnmcat -tb -%s %s "+$TMPDIR+"/textbar > %s.scalebar", bg_color, basename,basename)
+    system(cmd)
+
+    # clean up
+    system("rm "+$TMPDIR+"/label1.png "+$TMPDIR+"/label2.png")
+    system("rm "+$TMPDIR+"/textbar")
+   system("rm "+$TMPDIR+"/scale.text")
+   system("rm "+$TMPDIR+"/scalebar "+$TMPDIR+"/scalebar2")
+
+}
+
+define scale_bar_text(invert, font_factor) {
+#Added $DV_SCRIPT_FILES support - 5-13-08
+#added color_tables to $DV_SCRIPT_FILES
+
+if ($ARGC == 0) {
+  printf (" \n")
+  printf (" Add a scale bar to the bottom of an image \n")
+	printf (" Computes appropriate size of scalebar and text to match image\n")
+  printf (" usage:  scale_bar('filename', 'z_min_text', 'z_max_text', 'units' (e.g. 'K'), colorize_flag, invert=[0 or 1])  \n")
+  printf (" \n")
+  printf ("where: \n")
+	printf ("       filename =    - name of image on disk\n")
+	printf ("       z_min_text =  - text label for minimum value on scalebar\n")
+	printf ("       z_max_text =  - text label for maximum value on scalebar\n")
+	printf ("       units    =    - text label for units (e.g. 'K' or 'Centigrade'\n")
+  printf ("       colorize = 0  - no colorize \n")
+  printf ("                = 1  - use purple to red scale \n")
+  printf ("                = 2  - use purple to white scale \n")
+  printf ("                = 3  - color laserjet purple to red scale \n")
+  printf ("       [invert] = 0  - background color is black, text is white (default)\n")
+	printf ("                = 1  - background is white\n")
+  printf (" \n")
+  printf ("       writes final image to filename.scalebar \n")
+  printf (" \n")
+  printf (" example:  scale_bar_text('albg_alb6.ppm', 'Clear', 'Dusty', ' ', 1)  \n")
+ 	return(0)
+}
+
+    basename = $1
+    zmin = $2
+    zmax = $3
+    units = $4
+    colorize = $5
+
+	iflag = 0
+	bg_color = "black"
+	fg_color = "white"
+
+        if (HasValue(invert)) {
+	    if (invert ==1) {
+		iflag = 1
+		bg_color = "white"
+		fg_color = "black"
+	    }
+        }
+    
+    printf(" %s\n",basename)
+    a=read(basename)
+    # scale to width of original image
+    width = dim(a)[1]
+    height = dim(a)[2]
+    ave_dim = int((width + height) /2.)
+    # calculate font size for scale bar text
+    font_size = int(ave_dim/40. / 2) * 2
+    if (HasValue(font_factor)) {
+        font_size = int(font_size*font_factor)
+    }
+#    font_size = int(ave_dim/40. / 6) * 6
+        printf("font size = %d\n", font_size)
+    if (font_size <= 12) {
+        font_size = 12
+    }
+    printf (" font = %d\n", font_size)
+    # calculate size of scale bar
+    scale_len = int(ave_dim / (720./300) / 40) * 40
+#    scale_len = int(width / (720./300) / 50) * 50
+    scale_height = int(scale_len / 12.) 
+    # calculate pad between bottom of image and scale bar
+    pad = int(height / 60.)
+#    pad = scale_height / 4
+    # compute size of white line around scale bar
+    border = int(scale_height / 24.) 
+    printf(" width = %d  height = %d ave_dimension = %d pad = %d  border = %d\n",width, height, ave_dim, pad, border)
+    # make scale bar text
+
+
+		write(byte(clone(0,scale_len,2*scale_height,1)),$TMPDIR+"/text.png",png,force=1)
+		azmin = sprintf("convert -gravity center -font helvetica-bold -fill white -pointsize %d -draw 'text 0,0 \"%s %s\"' "+$TMPDIR+"/text.png "+$TMPDIR+"/label1.png",font_size,zmin,units)
+		azmax = sprintf("convert -gravity center -font helvetica-bold -fill white -pointsize %d -draw 'text 0,0 \"%s %s\"' "+$TMPDIR+"/text.png "+$TMPDIR+"/label2.png",font_size,zmax,units)
+	
+#    system (sprintf('/u/phil/scripts/make_font %d', font_size))
+#    azmin = sprintf("echo '%s %s' | pbmtext -font "+$DV_HOME+"/fonts/helmet_%d | pnminvert | pbmtopgm 1 1 | pnmdepth 255 > "+$TMPDIR+"/label1", zmin, units, font_size)
+#    azmax = sprintf("echo '%s %s' | pbmtext -font "+$DV_HOME+"/fonts/helmet_%d | pnminvert | pbmtopgm 1 1 | pnmdepth 255 > "+$TMPDIR+"/label2", zmax, units, font_size)
+	
+		echo(azmin)
+		echo(azmax)
+    system(azmin)
+    system(azmax)
+    f1 = clip(read($TMPDIR+"/label1.png")[,,1]*byte(255),0)
+    f2 = clip(read($TMPDIR+"/label2.png")[,,1]*byte(255),0)
+    # compute size of blank space between scale bar text
+    df1 = dim(f1)[1]
+    df2 = dim(f2)[1]
+		dh1 = dim(f1)[2]
+		dh2 = dim(f2)[2]
+    ave_df = avg(df1+df2)
+		    blanks = int(scale_len - ave_df/2.0)
+		if (blanks <= 0) {
+ 			blanks = 1
+		}
+    hf1 = int(max(dh1//dh2))
+		if(dh1<hf1) {
+			f11=bip(clone(byte(0),df1,hf1,1))
+			f11[1:df1,1:dh1]=f1
+			f1=f11
+		}
+		if(dh2<hf1) {
+			f21=bip(clone(byte(0),df2,hf2,1))
+			f21[1:df2,1:dh2]=f2
+			f2=f21
+		}
+
+    # concatinate text and blanks to make scale bar label
+    text = f1//bip((byte(create(blanks,hf1) * 0)))//f2
+		tbpad=bip(clone(byte(0),dim(text)[1],int(dim(text)[2]*.5),1))
+		text=cat(tbpad,text,tbpad,axis=y)
+    write(byte(text), $TMPDIR+"/scale.text", pgm, force=1)
+        if (iflag == 1) {
+            system("pnminvert "+$TMPDIR+"/scale.text > "+$TMPDIR+"/scale.text.tmp ; mv "+$TMPDIR+"/scale.text.tmp "+$TMPDIR+"/scale.text");
+        }
+    if(colorize == 1) {
+        # colorize scale bar using purple to red scale
+        cmd = sprintf("pgmramp -lr %d %d | pgmtoppm -map "+$DV_SCRIPT_FILES+"/color_tables/colormap_daily.ppm > "+$TMPDIR+"/scalebar", scale_len, scale_height)
+    } else if(colorize == 2) {
+        # colorize scale bar using purple to white scale
+        cmd = sprintf("pgmramp -lr %d %d | pgmtoppm -map "+$DV_SCRIPT_FILES+"/color_tables/colormap.ppm  > "+$TMPDIR+"/scalebar", scale_len, scale_height)
+    } else if(colorize == 3) {
+        # colorize scale bar using purple to red scale
+        cmd = sprintf("pgmramp -lr %d %d | pgmtoppm -map "+$DV_SCRIPT_FILES+"/color_tables/colorjet.ppm  > "+$TMPDIR+"/scalebar", scale_len, scale_height)
+    } else if (colorize == 0) {
+        # don't colorize scale bar
+        cmd = sprintf("pgmramp -lr %d %d > "+$TMPDIR+"/scalebar", scale_len, scale_height)
+    } else {
+        printf (" bad colorize choice\n")
+        return (0)
+    }
+
+    system(cmd)
+    cmd = sprintf("pnmpad -%s -t%d -b%d -l%d -r%d "+$TMPDIR+"/scalebar | pnmpad -%s -t%d > "+$TMPDIR+"/scalebar2", fg_color, border, border, border, border, bg_color, pad)
+    system(cmd);
+    
+    # concatinate scale and text
+    cmd = sprintf("pnmcat -tb -%s "+$TMPDIR+"/scalebar2 "+$TMPDIR+"/scale.text > "+$TMPDIR+"/textbar", bg_color)
+    system(cmd)
+  
+    # concatinate scale onto final image
+    cmd = sprintf("pnmcat -tb -%s %s "+$TMPDIR+"/textbar > %s.scalebar", bg_color, basename, basename)
+    system(cmd)
+
+    # clean up
+ #   system("rm "+$TMPDIR+"/label1.png "+$TMPDIR+"/label2.png")
+ #   system("rm "+$TMPDIR+"/textbar")
+ #   system("rm "+$TMPDIR+"/scale.text")
+ #   system("rm "+$TMPDIR+"/scalebar "+$TMPDIR+"/scalebar2")
+
+}
+
+
+define mola_overlay() {
+        if ($ARGC == 0) {
+                printf (" \n")
+                printf (" Drape color image over mola user-specified mola shaded relief topography using HSI stretch\n")
+                printf (" usage:  b = mola_overlay(region_array, array_pixels_per_degree, mola_pixels_per_degree, start_lon, end_lon, start_lat, end_lat\n")
+                printf (" example:  b = mola_overlay(a, 32, 75, 45, 35, 15)\n")
+
+        	return(0)
+        }
+
+	array = $1
+        ppd = $2
+        mola_ppd = $3
+        slon = $4
+        elon = $5
+        slat = $6
+        elat = $7
+
+        # read the mola map
+        if (mola_ppd == 4) {
+        	mola = read("/mgs/mola/gridded/mola_4.pgm")
+        } else if (mola_ppd == 8) {
+        	mola = read("/mgs/mola/gridded/mola_8.pgm")
+        } else if (mola_ppd == 16) {
+        	mola = read("/mgs/mola/gridded/mola_16.pgm")
+        } else if (mola_ppd == 32) {
+        	mola = read("/mgs/mola/gridded/mola_32.pgm")
+        } else if (mola_ppd == 64) {
+        	mola = read("/mgs/mola/gridded/mola_64.pgm")
+        } else {
+                # incorrect mola pixel per degree
+                return(0)
+        }
+
+
+        #check to see if need to expand either map
+        if (ppd != mola_ppd) {
+                # do expanding
+                scale = float(mola_ppd)/ppd
+
+                if (scale > 1.) {
+                        # expand tes data to scale of mola map
+                        printf("expanding TES data by %.1f\n", scale)
+                        write(bip(array), "junk_mola_overlay",ppm, force=1)
+                        system(sprintf("pnmscale %f junk_mola_overlay > junk1_mola_overlay", scale))
+                        array = read("junk1_mola_overlay")
+                        system("rm junk_mola_overlay junk1_mola_overlay")
+                        ppd = int(ppd * scale)
+
+                } else if (scale < 1.) {
+                        # expand mola map to scale of region 
+                        scale = 1./scale
+                        printf("expanding mola data by %.1f\n", scale)
+                        write(mola, "junk_mola_overlay",pgm, force=1)
+                        system(sprintf("pnmscale %f junk_mola_overlay  > junk1_mola_overlay", scale))
+                        mola = read("junk1_mola_overlay")
+                        system("rm junk_mola_overlay junk1_mola_overlay")
+
+                        mola_ppd = int(mola_ppd * scale)
+
+                        # a better way would be to get the correct mola map - not implemented yet
+
+                }
+
+        }
+
+        nx_mola = dim(mola)[1]
+        ny_mola = dim(mola)[2]
+
+        # check to see if doing 180 to 180 global map
+        if (slon == 180 && elon == 180) {
+                # do full 180 to 180 map
+                printf(" doing 180 to 180 map\n")
+              	hsv = rgb2hsv(array)
+        	hsv[,,3] = (mola + 96) / 256.0
+                out = byte(hsv2rgb(hsv, maxval=256))
+                return(out)
+        }                
+
+        # put mola in 360-0 space
+        half_x = int(nx_mola/2)
+        m1 = mola[1:half_x]
+        m2 = mola[half_x+1:nx_mola]
+
+        mola_swapped = cat(m2,m1,axis=x)
+
+        # check to see if doing full 360 to 0 map
+                if (slon == 360 && elon == 0) {
+                # do full 360 to 0 map
+                printf(" doing 360 to 0 map\n")
+
+              	hsv = rgb2hsv(array)
+
+        	hsv[,,3] = (mola_swapped + 96) / 256.0
+                out = byte(hsv2rgb(hsv, maxval=256))
+                return(out)
+        }                
+
+        # cut out region in mola array
+        if (slon> 360) {
+                # do 0 crossing case
+                printf("doing 0 crossing\n")
+                sx = int(nx_mola - (slon - 360) * mola_ppd +1)
+                ex = nx_mola
+                sy = int( (90 - slat) * mola_ppd +1)
+                ey = int( sy + (slat - elat) * mola_ppd) - 1
+                c1 = mola_swapped[sx:ex, sy:ey]
+
+                sx = 1
+                ex = int( (360- elon) * mola_ppd)
+                sy = int( (90 - slat) * mola_ppd +1)
+                ey = int( sy + (slat - elat) * mola_ppd) - 1
+                c2 = mola_swapped[sx:ex, sy:ey]
+                c = cat(c1,c2,axis=x)
+        
+        } else {
+                printf("doing regular map\n")
+                sx = int( (360 - slon) * mola_ppd +1)
+                ex = int( (360 - elon) * mola_ppd) 
+                sy = int( (90 - slat) * mola_ppd +1)
+                ey = int( (90 - elat) * mola_ppd)
+                c = mola_swapped[sx:ex, sy:ey] 
+        }
+
+        printf("sx = %d ex = %d sy = %d ey = %d\n", sx,ex,sy,ey)
+
+	hsv = rgb2hsv(array)
+#	hsv[,,3] = (mola + 64) / 256.0
+	hsv[,,3] = (c + 96) / 256.0
+
+
+        out = byte(hsv2rgb(hsv, maxval=256))
+        return(out)
+
+}
+
+#########################################################################
+# Programmer: Dale Noss                            Last Modified: 3/5/09
+#
+# Davinci function template to load ASTER imagery. This function uses 
+# gdalinfo and gdal_translate to parse ASTER HDFs and extract data bands.
+# The bands are written into the $TMPDIR directory as 8-bit or 16-bit
+# unsigned PGM files. In addition, the complete output from gdalinfo is
+# written to a text file in $TMPDIR/hdr.txt. The GDAL utilities are called
+# from a perl script /themis/bin/aster4davinci.pl
+#
+#
+# C. Edawrds - 6-24-10 
+# Modified to include the consolidate option to shrink and process the data structure
+# into a more useable format.  
+#
+# C. Edwards 9-7-10
+#	Modified to have default of 1 for convert to floating point and consolidate
+# Fixed the script for 09T TIR files
+# 
+#########################################################################
+
+define load_aster(consolidate) {
+
+	if($ARGC == 0) { 
+		printf(" Load ASTER HDF images: \n");
+		printf(" $1 = HDF filename, Required\n");
+		printf(" $2 = Boolean to convert bands to floating point values, like radiance. Optional\n");
+		printf("      0 -> leave as integer, 1 -> convert to floating point.\n");
+		printf(" $3 = Override default path to gdal utilities. Optional\n");
+		printf(" consolidate = conslidate all available bands of the same sizes into a single data cube (Default = 1)\n")
+		return(0);
+	} 
+	
+	# Working directory in which to store bands and hdr text
+	dest = " -d "+$TMPDIR+"/ ";
+	gdal = " -gdal "+$DV_GDAL_PATH;
+	
+	filename = $1; 
+		
+	if($ARGC > 1) {
+		float = $2; 
+	} else {
+		float = 1;
+	}
+	
+	if($ARGC > 2) { # User has specified an alternative gdal path
+		gdal = " -gdal "+$3;
+	}
+	
+	if(HasValue(consolidate)==0) consolidate=1
+	
+	# Call gdal utilities to extract data bands and parse HDF header
+	if(fexists(filename)) {   
+	
+		if(system($DV_SCRIPT_FILES + "/aster4davinci.pl -s " +filename+dest+gdal+ " > " + $TMPDIR + "/hdr.txt") != 0) {
+			printf("Failed HDF data extraction. Exiting...\n");
+			return(1);
+		}
+	
+	# Decomment when debugging locally 
+	#	if(system("/themis/bin" + "/aster4davinci.pl -s " +filename+dest+gdal+ " > " + $TMPDIR + "/hdr.txt") != 0) {
+	#		printf("Failed HDF data extraction. Exiting...\n");
+	#		return(1);
+	#	}
+	
+	} else {
+	
+	   printf("File '"+filename+"' not found. Exiting...\n");
+	   return(1);
+	}
+	
+	info = load_vanilla($TMPDIR+"/hdr.txt", delim="\t");
+	
+	names  = info[1];
+	values = info[2];
+	
+	lines  = length(names)
+	
+	# Create struct to be returned later.
+	aster = {};
+	
+	# Transfer all name/value pairs to the structure
+	for(i = 1; i <= lines; i++) {
+	   add_struct(aster, name=names[,i], value=values[,i]);
+	}
+	
+	# Create data structure
+	data = {};
+	  
+	verbose = 0;
+	
+	if(aster.short_name == "AST_07") { # Surface Reflectance
+	    
+		if(hasvalue(aster.band1_path)) {
+			add_struct(data, name="band1",  value=load(aster.band1_path));	
+			add_struct(data, name="band2",  value=load(aster.band2_path));
+			add_struct(data, name="band3N", value=load(aster.band3N_path));
+	
+		} else if(hasvalue(aster.band4_path)) {
+			add_struct(data, name="band4", value=load(aster.band4_path));
+			add_struct(data, name="band5", value=load(aster.band5_path));
+			add_struct(data, name="band6", value=load(aster.band6_path));
+			add_struct(data, name="band7", value=load(aster.band7_path));
+			add_struct(data, name="band8", value=load(aster.band8_path));
+			add_struct(data, name="band9", value=load(aster.band9_path));
+		}
+	
+		if(float == 1) {
+	
+			if(strstr(aster.param_name, "VNIR") > 0) {
+				data.band1  = eval(aster.scale_factor_1)  * float(data.band1);
+				data.band2  = eval(aster.scale_factor_2)  * float(data.band2);
+				data.band3N = eval(aster.scale_factor_3N) * float(data.band3N);
+	
+			} else if(strstr(aster.param_name, "SWIR") > 0) {
+				data.band4  = eval(aster.scale_factor_4)  * float(data.band4); 
+				data.band5  = eval(aster.scale_factor_5)  * float(data.band5);
+				data.band6  = eval(aster.scale_factor_6)  * float(data.band6);
+				data.band7  = eval(aster.scale_factor_7)  * float(data.band7);
+				data.band8  = eval(aster.scale_factor_8)  * float(data.band8);
+				data.band9  = eval(aster.scale_factor_9)  * float(data.band9);
+			}
+		}
+	} else if (aster.short_name == "AST_05") { # Surface Emissivity
+	 
+		if(hasvalue(aster.band10_path)) {
+			add_struct(data, name="band10", value=load(aster.band10_path));	
+			add_struct(data, name="band11", value=load(aster.band11_path));
+			add_struct(data, name="band12", value=load(aster.band12_path));
+			add_struct(data, name="band13", value=load(aster.band13_path));
+			add_struct(data, name="band14", value=load(aster.band14_path));
+		}
+	
+		if(float == 1) {
+			# ASTER Surface Emissivity AST05 Version 2.9
+			# This is the third release of this product and it should be considered a 
+			# Validated version. The five Emissivity values are dimensionless proportionality 
+			# factors. The scaling factor is 0.001. In converting image Data Numbers (DN) to 
+			# Emissivity there are no offsets, and the scaled values are obtained by multiplying 
+			# the image DN by the appropriate scaling factor (value=DN*scaling factor). 
+			# http://asterweb.jpl.nasa.gov/content/03_data/01_Data_Products/release_surface_emissivity_product.htm	
+	
+			if(hasvalue(data.band10)) {
+				data.band10 = float(data.band10) / eval(aster.scale_factor_10);
+				data.band11 = float(data.band11) / eval(aster.scale_factor_11);
+				data.band12 = float(data.band12) / eval(aster.scale_factor_12);
+				data.band13 = float(data.band13) / eval(aster.scale_factor_13);
+				data.band14 = float(data.band14) / eval(aster.scale_factor_14);
+			}
+		}
+	} else if (aster.short_name == "AST_08") { # Surface Kinetic Temperature
+	  
+	 	add_struct(data, name="surf_temp", value=load(aster.bandSurfTemp_path));		
+	  
+	 	if(float == 1) {
+			# data_plane_description: "The temperature plane, plane 1, contains the Kelvin  
+			# surface kinetic temperatures for each pixel in the ASTER scene, scaled by 10."
+			# From HDF header itself
+			data.surf_temp = float(data.surf_temp) / eval(aster.scale_factor_10);
+		}
+	} else if (aster.short_name == "AST_09" || aster.short_name == "AST_09T") { # Surface Radiance
+	
+		if(hasvalue(aster.band1_path)) {
+			add_struct(data, name="band1",  value=load(aster.band1_path));	
+			add_struct(data, name="band2",  value=load(aster.band2_path));
+			add_struct(data, name="band3N", value=load(aster.band3N_path));
+		}
+		if(hasvalue(aster.band4_path)) {
+			add_struct(data, name="band4", value=load(aster.band4_path));
+			add_struct(data, name="band5", value=load(aster.band5_path));
+			add_struct(data, name="band6", value=load(aster.band6_path));
+			add_struct(data, name="band7", value=load(aster.band7_path));
+			add_struct(data, name="band8", value=load(aster.band8_path));
+			add_struct(data, name="band9", value=load(aster.band9_path));
+		}
+
+		if(hasvalue(aster.band10_path)) {
+	  	add_struct(data, name="band10", value=load(aster.band10_path));
+	  	add_struct(data, name="band11", value=load(aster.band11_path));
+	  	add_struct(data, name="band12", value=load(aster.band12_path));
+	  	add_struct(data, name="band13", value=load(aster.band13_path));
+	  	add_struct(data, name="band14", value=load(aster.band14_path));
+		}
+
+	
+		if(float == 1) {
+	  # To convert from DN to Radiance at the Sensor, the unit conversion coefficients
+	  # (defined as radiance per 1 DN) are used. Spectral Radiance is expressed in unit 
+		# of W/(m2 sr m). The radiance can be obtained from DN values as follows:
+		#           Radiance at the Sensor = ( DN - 1) UCC   where, UCC is the Unit 
+		# Conversion Coefficient for each ASTER Channel in W/(m2 sr m)/DN. For Channel 1 
+		# UCC values are 0.676 for high gain, 1.688 for normal gain and 2.25 for low gain
+		# (Abrams and Hook 2001).
+	
+			if(hasvalue(data.band1)) {
+				data.band1  = eval(aster.scale_factor_1)  * float(data.band1 - 1);
+				data.band2  = eval(aster.scale_factor_2)  * float(data.band2 - 1);
+				data.band3N = eval(aster.scale_factor_3N) * float(data.band3N - 1);
+			}
+	
+			if(hasvalue(data.band4)) {
+				data.band4  = eval(aster.scale_factor_4)  * float(data.band4 - 1);
+				data.band5  = eval(aster.scale_factor_5)  * float(data.band5 - 1);
+				data.band6  = eval(aster.scale_factor_6)  * float(data.band6 - 1);
+				data.band7  = eval(aster.scale_factor_7)  * float(data.band7 - 1);
+				data.band8  = eval(aster.scale_factor_8)  * float(data.band8 - 1);
+				data.band9  = eval(aster.scale_factor_9)  * float(data.band9 - 1);
+			}
+
+			if(hasvalue(data.band10)) {
+				data.band10 = eval(aster.scale_factor_10) * float(data.band10 - 1);
+				data.band11 = eval(aster.scale_factor_11) * float(data.band11 - 1);
+				data.band12 = eval(aster.scale_factor_12) * float(data.band12 - 1);
+				data.band13 = eval(aster.scale_factor_13) * float(data.band13 - 1);
+				data.band14 = eval(aster.scale_factor_14) * float(data.band14 - 1);
+			}
+
+		}
+	} else if (aster.short_name == "ASTL1B") {  # Level 1-B data
+	  
+	  if(hasvalue(aster.band1_path)) {
+	  	add_struct(data, name="band1", value=load(aster.band1_path));
+	  	add_struct(data, name="band2", value=load(aster.band2_path));
+	  	add_struct(data, name="band3N", value=load(aster.band3N_path));
+	  	add_struct(data, name="band3B", value=load(aster.band3B_path));
+		}
+	
+		if(hasvalue(aster.band4_path)) {
+	  	add_struct(data, name="band4", value=load(aster.band4_path));
+	  	add_struct(data, name="band5", value=load(aster.band5_path));
+	  	add_struct(data, name="band6", value=load(aster.band6_path));
+	  	add_struct(data, name="band7", value=load(aster.band7_path));
+	  	add_struct(data, name="band8", value=load(aster.band8_path));
+	  	add_struct(data, name="band9", value=load(aster.band9_path));
+		}
+	
+		if(hasvalue(aster.band10_path)) {
+	  	add_struct(data, name="band10", value=load(aster.band10_path));
+	  	add_struct(data, name="band11", value=load(aster.band11_path));
+	  	add_struct(data, name="band12", value=load(aster.band12_path));
+	  	add_struct(data, name="band13", value=load(aster.band13_path));
+	  	add_struct(data, name="band14", value=load(aster.band14_path));
+		}
+	  
+	  if(float == 1) { # Convert to radiance units (watts/meter^2/steradian/meter)
+			# radiance = (DN - 1) * Unit Conversion Coefficient. 
+			# From the ASTER User Handbook
+	
+			if(hasvalue(data.band1)) {
+				data.band1  = eval(aster.band1_corr_coeff) * float(data.band1 - 1);
+				data.band2  = eval(aster.band2_corr_coeff) * float(data.band2 - 1);
+				data.band3N = eval(aster.band3n_corr_coeff) * float(data.band3N - 1);
+				data.band3B = eval(aster.band3b_corr_coeff) * float(data.band3B - 1);
+			}  
+	
+			if(hasvalue(data.band4)) {
+				data.band4  = eval(aster.band4_corr_coeff) * float(data.band4 - 1);
+				data.band5  = eval(aster.band5_corr_coeff) * float(data.band5 - 1);
+				data.band6  = eval(aster.band6_corr_coeff) * float(data.band6 - 1);
+				data.band7  = eval(aster.band7_corr_coeff) * float(data.band7 - 1);
+				data.band8  = eval(aster.band8_corr_coeff) * float(data.band8 - 1);
+				data.band9  = eval(aster.band9_corr_coeff) * float(data.band9 - 1);
+			}
+	
+			if(hasvalue(data.band10)) {
+				data.band10 = eval(aster.band10_corr_coeff) * float(data.band10 - 1);
+				data.band11 = eval(aster.band11_corr_coeff) * float(data.band11 - 1);
+				data.band12 = eval(aster.band12_corr_coeff) * float(data.band12 - 1);
+				data.band13 = eval(aster.band13_corr_coeff) * float(data.band13 - 1);
+				data.band14 = eval(aster.band14_corr_coeff) * float(data.band14 - 1);
+			}
+		}
+	}
+	
+	verbose = 1;
+	
+	if(consolidate==0) {  
+		aster.data = data
+	} else {
+	
+		data2={}
+		if(HasValue(get_struct(data,"band1"))) {
+			data2.vnir=cat(data.band1,data.band2,data.band3N,axis=z)
+			data2.vnir3B=data.band3B
+		}
+		if(HasValue(get_struct(data,"band4"))) {
+			data2.swir=cat(data.band4,data.band5,data.band6,data.band7,data.band8,data.band9,axis=z)
+	
+		}
+		if(HasValue(get_struct(data,"band10"))) {
+			data2.ir=cat(data.band10,data.band11,data.band12,data.band13,data.band14,axis=z)
+		}
+		
+		if(HasValue(get_struct(data,"surf_temp"))) {
+			data2.surf_temp=data.surf_temp
+		}
+	
+		if(float==1) {
+			if(HasValue(get_struct(data,"band1"))) {
+				data2.vnir[where data2.vnir <= 0]=-32768
+				data2.vnir3B[where data2.vnir3B <= 0]=-32768
+			}
+			if(HasValue(get_struct(data,"band4"))) {
+				data2.swir[where data2.swir <= 0]=-32768
+			}
+			if(HasValue(get_struct(data,"band10"))) {
+				data2.ir[where data2.ir <= 0]=-32768
+			}
+			if(HasValue(get_struct(data,"surf_temp"))){
+				data2.surf_temp[where data2.surf_temp<=min(data2.surf_temp)]=-32768
+			}
+		}
+	
+		data=data2
+	
+		keys=get_struct_key(aster)
+		path=text(0)
+		corr_coeff=text(0)
+		offset=text(0)
+		scale_factor=text(0)
+		bandlist=text(0)
+		scale_factor_flag=0
+		band_flag=0
+			
+		for(i=1;i<=length(keys);i+=1){
+			if(issubstring(keys[,i],"offset")){
+				offset=cat(offset,aster[i],axis=y)
+				band_flag=1
+			}
+			if(issubstring(keys[,i],"coeff")){
+				corr_coeff=cat(corr_coeff,aster[i],axis=y)
+				band_flag=1
+			}
+			if(issubstring(keys[,i],"scale_factor")){
+				scale_factor=cat(scale_factor,aster[i],axis=y)
+				scale_factor_flag=1
+			}
+			if(issubstring(keys[,i],"path")) {
+				bandlist=cat(bandlist,basename(keys[,i],"_path"),axis=y)
+				path=cat(path,aster[i],axis=y)
+				band_flag=1
+			}
+			if(issubstring(keys[,i],"angle") || issubstring(keys[,i],"lat") || issubstring(keys[,i],"lon") || issubstring(keys[,i],"solar") || issubstring(keys[,i],"scene_cloud") || issubstring(keys[,i],"line") || issubstring(keys[,i],"pixel") || issubstring(keys[,i],"number")) {
+				aster[i]=atod(aster[i])
+			}
+		}
+		
+		#remove the scale_factor elements from the output structure
+		if(scale_factor_flag==1) {
+			scale_keys=grep(keys,"scale_factor.*")
+			for(i=1;i<=length(scale_keys);i+=1) {
+				remove_struct(aster,scale_keys[,i])
+			}
+		}
+
+		#remove the band elements from the output strucutre
+		if(band_flag==1) { 
+			band_keys=grep(keys,"band.*\_")
+			for(i=1;i<=length(band_keys);i+=1) {
+				remove_struct(aster,band_keys[,i])
+			}
+		}
+	
+		aster2={}
+		aster2.anc={}
+		aster2.anc=aster
+
+    global(Earth)
+    Re=Earth.Re/1000 #equatorial radius in km
+    Rp=Earth.Rp/1000 #polar radius in km
+    flattening = 1.0 - (Rp/Re)
+    g2c = (1.0 - flattening) * (1.0 - flattening)
+    esqrd = 2.0 * flattening - flattening * flattening
+  
+		if(length(offset)!=0) {
+			aster2.anc.offset=atod(offset)
+		}
+		if(length(corr_coeff)!=0) {
+			aster2.anc.corr_coeff=atod(corr_coeff)
+		}
+		if(length(scale_factor)!=0) {
+			aster2.anc.scale_factor=atod(scale_factor)
+		}
+		if(HasValue(get_struct(aster2.anc,"ul_lat")) && HasValue(get_struct(aster2.anc,"ul_lon"))) {
+			aster2.ul=atand(g2c*tand(aster2.anc.ul_lat))//aster2.anc.ul_lon
+		}
+		if(HasValue(get_struct(aster2.anc,"ur_lat")) && HasValue(get_struct(aster2.anc,"ur_lon"))) {
+			aster2.ur=atand(g2c*tand(aster2.anc.ur_lat))//aster2.anc.ur_lon
+		}
+		if(HasValue(get_struct(aster2.anc,"ll_lat")) && HasValue(get_struct(aster2.anc,"ll_lon"))) {
+			aster2.ll=atand(g2c*tand(aster2.anc.ll_lat))//aster2.anc.ll_lon
+		}
+		if(HasValue(get_struct(aster2.anc,"lr_lat")) && HasValue(get_struct(aster2.anc,"lr_lon"))) {
+			aster2.lr=atand(g2c*tand(aster2.anc.lr_lat))//aster2.anc.lr_lon
+		}
+
+		aster2.anc.path=path
+		aster2.bandlist=bandlist
+		aster2.data=data
+		aster=aster2
+	}
+	return(aster);
+}
+
+
+
+
+define delete_object_vars(sin) {
+    #sin=$1
+    if (type(sin) == "STRUCT") {
+        remove_struct(sin, "Object")
+        for (i=1; i<=length(sin); i++) {
+            delete_object_vars(sin=sin[i])
+        }
+    }
+}
+
+define themis_to_isis3() {
+    if ($ARGC == 0) {
+        printf("Convert an EDR/RDR to ISIS3 format, preserving pre-ISIS processing history.\n\n")
+        printf("    usage: themis_to_isis3(input_filename, output_filename)\n\n")
+        printf("    side effect: isis3 IO module is loaded if not already present.\n")
+        printf("                 use rmmod('isis3') to remove it if desired.\n\n")
+        return(0)
+    }
+    in = $1
+    out = $2
+    rmmod("isis3")
+    a = load_pds(in)
+    insmod("isis3")
+    hist = a.history.data
+    rtn = system("thm2isis from=" + in + " to=" + out + "_tmpi3")
+    if (rtn != 0) {
+        printf("thm2isis failed on input file " + in + "\n");
+        return(rtn)
+    }
+    a=0 # protect seg fault in case this load fails.
+    a = load_pds(out + "_tmpi3.cub")
+    system("rm " + out + "_tmpi3.cub")
+    delete_object_vars(sin=hist)
+    hist.isis_struct_type = "history"
+    a.IsisCube.History = hist
+    write(a, out, type=isis3, force=1)
+    return hist
+}
+
